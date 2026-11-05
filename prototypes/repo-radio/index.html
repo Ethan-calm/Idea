@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo Radio</title>
+<style>
+  :root {
+    --bg: #f3efe7; --panel: #fffdf8; --ink: #2a2622; --muted: #7d756b; --line: #e2dbcf;
+    --accent: #d9653b; --sky: #f7e9d7; --sky-minor: #d9dde8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17151a; --panel: #211e25; --ink: #efe9e1; --muted: #9b93a0; --line: #343039;
+      --accent: #ff8a5c; --sky: #2a2131; --sky-minor: #161b2b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { margin: 0; font-size: 24px; }
+  .sub { margin: 2px 0 16px; color: var(--muted); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+  button.play { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 9px 20px; }
+  input[type=text], textarea { width: 100%; font: 13px/1.4 ui-monospace, monospace; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; }
+  textarea { min-height: 110px; resize: vertical; }
+  .src { display: none; } .src.on { display: block; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .hint code { background: var(--bg); padding: 1px 5px; border-radius: 5px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .controls label { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+  .stage { position: relative; margin-top: 16px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line);
+    background: var(--sky); transition: background 2s; height: 340px; }
+  .stage.minor { background: var(--sky-minor); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .np { position: absolute; left: 14px; right: 14px; bottom: 12px; display: flex; justify-content: space-between;
+    gap: 12px; font-size: 13px; pointer-events: none; }
+  .np .now { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .np .mood { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 16px; margin-top: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  ol#log { margin: 0; padding: 0; list-style: none; max-height: 260px; overflow: auto; font-size: 13px; }
+  ol#log li { padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
+  ol#log .tag { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 999px; color: #fff; align-self: center; }
+  ol#log .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .legend { font-size: 13px; margin: 0; padding: 0; list-style: none; }
+  .legend li { padding: 3px 0; }
+  .err { color: #c0392b; font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📻 Repo Radio</h1>
+  <p class="sub">커밋이 음표가 되는 로파이 라디오. 팀이 일하는 소리를 들어보세요.</p>
+
+  <div class="panel">
+    <div class="tabs" role="tablist">
+      <button data-src="demo" aria-pressed="true">🎲 데모 팀</button>
+      <button data-src="gh" aria-pressed="false">🐙 GitHub 공개 레포</button>
+      <button data-src="paste" aria-pressed="false">📋 git log 붙여넣기</button>
+    </div>
+    <div class="src on" id="src-demo"><p class="hint" style="margin:0">가상의 4인 팀이 하루 동안 남긴 커밋 40개를 연주해요. 중간에 사고가 하나 터집니다 🔥</p></div>
+    <div class="src" id="src-gh">
+      <input type="text" id="gh" value="facebook/react" placeholder="owner/repo">
+      <p class="hint">최근 커밋 60개를 불러와요 (로그인 없이 시간당 60회 제한).</p>
+    </div>
+    <div class="src" id="src-paste">
+      <textarea id="paste" placeholder="여기에 붙여넣기"></textarea>
+      <p class="hint">레포에서 이 명령 결과를 붙여넣으면 변경 줄 수까지 반영돼요:<br>
+        <code>git log -60 --shortstat --pretty=format:'%h|%an|%at|%s'</code></p>
+    </div>
+    <div class="controls">
+      <button class="play" id="play">▶ 재생</button>
+      <label>볼륨 <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7"></label>
+      <label>템포 <input type="range" id="bpm" min="60" max="100" step="1" value="78"> <span id="bpmv">78</span></label>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="np"><span class="now" id="now">재생을 누르세요</span><span class="mood" id="mood">☀️ 장조</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel"><h2>방송 기록</h2><ol id="log"></ol></div>
+    <div class="panel">
+      <h2>무엇이 어떤 소리?</h2>
+      <ul class="legend">
+        <li>🎹 커밋 = 멜로디 한 음 (사람마다 다른 악기·높이)</li>
+        <li>✨ feat/add = 올라가는 아르페지오</li>
+        <li>🩹 fix = 코드의 으뜸음으로 '해결'</li>
+        <li>🔔 test = 맑은 종소리</li>
+        <li>📝 docs = 작고 높은 음</li>
+        <li>🔥 revert/hotfix/broken = 2마디 단조로 전조</li>
+        <li>💥 300줄 넘는 변경 = 베이스 드롭</li>
+        <li>💿 배경: 로파이 드럼 + 코드 패드 + LP 잡음</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+// ------------------------------------------------------------ data ----
+const TYPES = {
+  feat:   { re: /\b(feat|add|implement|introduce|new)\b|추가|구현/i, color: "#3f8efc", label: "feat" },
+  fix:    { re: /\b(fix|bug|patch|resolve)\b|수정|버그/i,            color: "#2fa36b", label: "fix" },
+  bad:    { re: /\b(revert|hotfix|broken|break|fail|urgent|rollback)\b|롤백|긴급|장애/i, color: "#e0452b", label: "🔥" },
+  test:   { re: /\b(test|spec|coverage)\b|테스트/i,                  color: "#9b59b6", label: "test" },
+  docs:   { re: /\b(docs?|readme|typo|comment)\b|문서|오타/i,         color: "#c49a2c", label: "docs" },
+  merge:  { re: /^merge\b/i,                                           color: "#7f8c8d", label: "merge" },
+};
+function classify(msg) {
+  for (const [k, t] of Object.entries(TYPES)) if (t.re.test(msg)) return k;
+  return "other";
+}
+const typeColor = k => (TYPES[k] || { color: "#8a7f72" }).color;
+const hash = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
+
+function parseGitLog(text) {
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^([0-9a-f]{5,40})\|(.*?)\|(\d{9,11})\|(.*)$/);
+    if (m) { out.push({ sha: m[1], author: m[2] || "?", time: +m[3], msg: m[4], size: null }); continue; }
+    const s = line.match(/(\d+) insertions?\(\+\)/), d = line.match(/(\d+) deletions?\(-\)/);
+    if ((s || d) && out.length) out[out.length - 1].size = (s ? +s[1] : 0) + (d ? +d[1] : 0);
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
+function demoCommits() {
+  const people = ["minji", "jun", "sora", "hyun"];
+  const script = [
+    "feat: 로그인 화면 뼈대", "docs: README 설치 방법", "feat: add todo list API", "test: todo API spec",
+    "fix: 로그인 버튼 정렬", "feat: implement dark mode", "chore: bump deps", "fix: typo in header",
+    "feat: 알림 설정 페이지", "test: coverage for settings", "refactor: split store into slices",
+    "feat: add drag and drop", "fix: drag ghost image on safari", "docs: API 문서 정리",
+    "hotfix: prod login broken 🔥", "revert: split store into slices", "fix: restore session handling",
+    "test: regression for login", "feat: 오프라인 모드", "fix: offline sync conflict",
+    "feat: add keyboard shortcuts", "docs: shortcuts cheat sheet", "style: tidy spacing",
+    "feat: implement search", "fix: search debounce", "test: search spec", "merge branch 'search'",
+    "feat: 통계 대시보드", "fix: chart tooltip overflow", "docs: changelog", "feat: export to csv",
+    "fix: csv encoding for 한글", "test: csv export", "refactor: chart components", "feat: add onboarding tour",
+    "fix: tour skip button", "docs: onboarding copy", "test: onboarding e2e", "feat: 릴리즈 준비", "docs: v1.0 릴리즈 노트 🎉",
+  ];
+  let t = 1730000000;
+  return script.map((msg, i) => {
+    t += 300 + (hash(msg) % 3600);
+    const big = /refactor|revert|대시보드/.test(msg);
+    return { sha: (hash(msg) >>> 0).toString(16).slice(0, 7), author: people[hash(msg + i) % 4],
+             time: t, msg, size: big ? 400 + hash(msg) % 400 : 5 + hash(msg) % 120 };
+  });
+}
+
+async function githubCommits(repo) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("owner/repo 형식으로 적어주세요");
+  const r = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=60`);
+  if (!r.ok) throw new Error(r.status === 403 ? "GitHub가 요청을 거절했어요 (시간당 한도 초과일 수 있어요)" : `불러오기 실패 (${r.status})`);
+  const data = await r.json();
+  return data.map(c => ({
+    sha: c.sha.slice(0, 7), author: (c.author && c.author.login) || c.commit.author.name,
+    time: Date.parse(c.commit.author.date) / 1000, msg: c.commit.message.split("\n")[0], size: null,
+  })).sort((a, b) => a.time - b.time);
+}
+
+// ----------------------------------------------------------- audio ----
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+const MAJOR = [[48, 60, 64, 67, 71], [45, 57, 60, 64, 67], [41, 57, 60, 64, 65], [43, 55, 59, 62, 65]]; // Cmaj7 Am7 Fmaj7 G7
+const MINOR = [[48, 60, 63, 67, 70], [44, 56, 60, 63, 67], [41, 56, 60, 63, 65], [43, 55, 59, 62, 68]]; // Cm7 Abmaj7 Fm7 G7b9
+const VOICES = ["triangle", "sine", "square", "sawtooth"];
+
+let ctx, master, crackle, timer, raf;
+let step = 0, nextTime = 0, commits = [], ci = 0, nextCommitStep = 0, moodSteps = 0, playing = false;
+const bubbles = [];
+
+function setupAudio() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 3200;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
+  master = ctx.createGain(); master.gain.value = +document.getElementById("vol").value;
+  master.connect(lp).connect(comp).connect(ctx.destination);
+  // vinyl crackle: looped noise with sparse pops
+  const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.015 + (Math.random() < 0.0004 ? (Math.random() - 0.5) * 0.9 : 0);
+  crackle = ctx.createBufferSource(); crackle.buffer = buf; crackle.loop = true;
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1500;
+  const g = ctx.createGain(); g.gain.value = 0.5;
+  crackle.connect(hp).connect(g).connect(master); crackle.start();
+}
+
+function env(node, t, peak, attack, decay) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+  node.connect(g).connect(master);
+  return g;
+}
+function tone(freq, t, { type = "sine", peak = 0.15, attack = 0.01, decay = 0.4, cutoff = 2400 } = {}) {
+  const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
+  const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = cutoff;
+  o.connect(f); env(f, t, peak, attack, decay);
+  o.start(t); o.stop(t + attack + decay + 0.05);
+}
+function noise(t, { peak = 0.2, decay = 0.08, type = "highpass", freq = 7000 } = {}) {
+  const n = ctx.createBufferSource(), len = Math.ceil(ctx.sampleRate * (decay + 0.05));
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  n.buffer = buf;
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+  n.connect(f); env(f, t, peak, 0.003, decay); n.start(t);
+}
+function kick(t) {
+  const o = ctx.createOscillator(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.18);
+  env(o, t, 0.6, 0.004, 0.32); o.start(t); o.stop(t + 0.4);
+}
+function bassDrop(t) {
+  const o = ctx.createOscillator(); o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(30, t + 1.6);
+  env(o, t, 0.7, 0.02, 1.8); o.start(t); o.stop(t + 1.9);
+}
+
+const spb = () => 60 / +document.getElementById("bpm").value;     // seconds per beat
+const s16 = () => spb() / 4;
+
+function scheduleStep(s, t) {
+  const pos = s % 16, bar = Math.floor(s / 16);
+  const minor = moodSteps > 0;
+  const chord = (minor ? MINOR : MAJOR)[bar % 4];
+  const swing = (pos % 2 === 1) ? s16() * 0.18 : 0;
+  t += swing;
+  if (pos === 0 || pos === 10) kick(t);
+  if (pos === 4 || pos === 12) noise(t, { peak: 0.18, decay: 0.16, type: "bandpass", freq: 1800 });
+  if (pos % 2 === 0) noise(t, { peak: pos % 4 ? 0.05 : 0.08, decay: 0.04 });
+  if (pos === 0) {
+    chord.slice(1).forEach(n => tone(midi(n), t, { type: "triangle", peak: 0.05, attack: 0.3, decay: spb() * 4, cutoff: 1100 }));
+    tone(midi(chord[0] - 12), t, { type: "sine", peak: 0.22, attack: 0.02, decay: spb() * 1.8 });
+  }
+  if (pos === 8) tone(midi(chord[0] - 12), t, { type: "sine", peak: 0.16, attack: 0.02, decay: spb() * 1.5 });
+  if (moodSteps > 0) moodSteps--;
+
+  if (playing && ci < commits.length && s >= nextCommitStep) {
+    const c = commits[ci];
+    playCommit(c, chord, t);
+    const next = commits[ci + 1];
+    // real time gaps squeezed into 2–8 sixteenths, so busy days sound busy
+    const gap = next ? Math.max(2, Math.min(8, Math.round(Math.log2(1 + (next.time - c.time) / 300) * 2))) : 16;
+    nextCommitStep = s + gap;
+    ci++;
+    if (ci >= commits.length) setTimeout(() => announce("📻 방송 끝 — 다시 들으려면 재생"), (t - ctx.currentTime) * 1000 + 3000);
+  }
+}
+
+function playCommit(c, chord, t) {
+  const kind = classify(c.msg), h = hash(c.author);
+  const scale = [...chord.slice(1).map(n => n + 12), chord[1] + 14 + 12];
+  const note = scale[(h + hash(c.sha)) % scale.length];
+  const voice = VOICES[h % VOICES.length];
+  const len = c.size == null ? 0.4 : Math.min(1.6, 0.2 + Math.log10(1 + c.size) * 0.4);
+  const quiet = voice === "square" || voice === "sawtooth" ? 0.06 : 0.14;
+  tone(midi(note), t, { type: voice, peak: quiet, decay: len, cutoff: 2600 });
+  if (kind === "feat") [4, 7].forEach((iv, i) => tone(midi(note + iv), t + (i + 1) * s16(), { type: voice, peak: quiet * 0.8, decay: 0.3 }));
+  if (kind === "fix") tone(midi(chord[1] + 24), t + s16() * 2, { type: "sine", peak: 0.12, decay: 0.6 });
+  if (kind === "test") tone(midi(note + 24), t, { type: "sine", peak: 0.08, attack: 0.002, decay: 1.4, cutoff: 8000 });
+  if (kind === "docs") tone(midi(note + 12), t + s16(), { type: "sine", peak: 0.05, decay: 0.3 });
+  if (kind === "merge") noise(t, { peak: 0.08, decay: 0.9, freq: 5000 });
+  if (kind === "bad") { moodSteps = 32; tone(midi(note + 1), t, { type: "sawtooth", peak: 0.05, decay: 0.8, cutoff: 1500 }); }
+  if ((c.size || 0) > 300) bassDrop(t);
+  const delay = Math.max(0, (t - ctx.currentTime) * 1000);
+  setTimeout(() => show(c, kind), delay);
+}
+
+function tick() {
+  while (nextTime < ctx.currentTime + 0.12) { scheduleStep(step, nextTime); nextTime += s16(); step++; }
+}
+
+// ---------------------------------------------------------- visuals ----
+const cv = document.getElementById("cv"), g2 = cv.getContext("2d");
+const authors = [];
+function show(c, kind) {
+  if (!authors.includes(c.author)) authors.push(c.author);
+  const lane = authors.indexOf(c.author);
+  bubbles.push({ x: 0.1 + ((lane * 0.23 + (hash(c.sha) % 100) / 900) % 0.8), y: 1, r: 6 + Math.min(34, Math.sqrt(c.size || 20) * 1.6),
+                 color: typeColor(kind), born: performance.now(), kind });
+  document.getElementById("now").textContent = `♪ ${c.author}: ${c.msg}`;
+  document.getElementById("stage").classList.toggle("minor", moodSteps > 0);
+  document.getElementById("mood").textContent = moodSteps > 0 ? "🌧️ 단조 (사고 수습 중)" : "☀️ 장조";
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="tag" style="background:${typeColor(kind)}">${(TYPES[kind] || { label: "·" }).label}</span>` +
+                 `<span class="msg"></span>`;
+  li.querySelector(".msg").textContent = `${c.author} — ${c.msg}`;
+  const log = document.getElementById("log"); log.prepend(li);
+  while (log.children.length > 80) log.lastChild.remove();
+}
+function announce(text) { document.getElementById("now").textContent = text; }
+
+function draw() {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  g2.setTransform(dpr, 0, 0, dpr, 0, 0); g2.clearRect(0, 0, w, h);
+  const now = performance.now();
+  if (playing) { // beat pulse on the floor
+    const beat = ((ctx.currentTime / spb()) % 1);
+    g2.fillStyle = `rgba(217,101,59,${0.12 * (1 - beat)})`; g2.fillRect(0, h - 6, w, 6);
+  }
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i], age = (now - b.born) / 1000;
+    const y = h - 30 - age * 42, alpha = Math.max(0, 1 - age / 7);
+    if (alpha <= 0) { bubbles.splice(i, 1); continue; }
+    g2.globalAlpha = alpha * 0.85; g2.fillStyle = b.color;
+    g2.beginPath(); g2.arc(b.x * w + Math.sin(age * 1.7 + i) * 8, y, b.r * (1 + Math.max(0, 0.4 - age) ), 0, Math.PI * 2); g2.fill();
+    if (b.kind === "bad") { g2.globalAlpha = alpha * 0.4; g2.strokeStyle = b.color; g2.lineWidth = 2;
+      g2.beginPath(); g2.arc(b.x * w, y, b.r + age * 30, 0, Math.PI * 2); g2.stroke(); }
+  }
+  g2.globalAlpha = 1;
+  raf = requestAnimationFrame(draw);
+}
+
+// ---------------------------------------------------------- controls ----
+let source = "demo";
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  source = b.dataset.src;
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.querySelectorAll(".src").forEach(x => x.classList.toggle("on", x.id === "src-" + source));
+});
+document.getElementById("vol").oninput = e => master && (master.gain.value = +e.target.value);
+document.getElementById("bpm").oninput = e => document.getElementById("bpmv").textContent = e.target.value;
+
+async function loadCommits() {
+  if (source === "demo") return demoCommits();
+  if (source === "gh") return githubCommits(document.getElementById("gh").value.trim());
+  const list = parseGitLog(document.getElementById("paste").value);
+  if (!list.length) throw new Error("커밋을 찾지 못했어요 — 아래 명령의 출력 형식인지 확인해주세요");
+  return list;
+}
+
+document.getElementById("play").onclick = async () => {
+  const btn = document.getElementById("play"), err = document.getElementById("err");
+  if (playing) { stop(); return; }
+  err.textContent = "";
+  try { commits = await loadCommits(); } catch (e) { err.textContent = e.message; return; }
+  if (!ctx) setupAudio();
+  await ctx.resume();
+  bubbles.length = 0; authors.length = 0; document.getElementById("log").innerHTML = "";
+  ci = 0; step = 0; moodSteps = 0; nextTime = ctx.currentTime + 0.1; nextCommitStep = 4; playing = true;
+  announce(`📻 ${commits.length}개 커밋 방송 시작`);
+  timer = setInterval(tick, 25);
+  if (!raf) draw();
+  btn.textContent = "■ 정지";
+};
+function stop() {
+  playing = false; clearInterval(timer);
+  ctx && ctx.suspend();
+  document.getElementById("play").textContent = "▶ 재생";
+}
+</script>
+</body>
+</html>
